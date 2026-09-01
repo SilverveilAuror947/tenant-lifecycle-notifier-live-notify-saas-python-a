@@ -1,0 +1,8 @@
+# Runtime dependencies for environments that install from requirements.txt.
+fastapi>=0.115,<1
+httpx>=0.27,<1
+pydantic>=2.8,<3
+uvicorn>=0.30,<1
+
+# Test runner used by the repository's focused test suite.
+pytest>=8,<9

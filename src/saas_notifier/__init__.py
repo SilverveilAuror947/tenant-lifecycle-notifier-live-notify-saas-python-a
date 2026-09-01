@@ -1,0 +1,2 @@
+"""Tenant lifecycle notification service."""
+
