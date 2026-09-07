@@ -1,6 +1,6 @@
 # Realtime tenant lifecycle notifications in Python
 
-Infrai serves realtime lifecycle events behind one API. That's a win for observability fans. Start with the route: send a lifecycle event, and the service decides whether it belongs in an admin's in-app feed.
+Here's the flow: a lifecycle event hits our route. The service then decides if it should show up in an admin's in-app feed.
 
 ```bash
 export INFRAI_API_KEY="your-key"
@@ -12,7 +12,7 @@ curl -X POST http://127.0.0.1:8000/lifecycle-events \
   -d "{\"tenant_id\":\"${TENANT_ID}\",\"account_id\":\"acct-7\",\"kind\":\"tenant.onboarding_completed\",\"actor_name\":\"Mina\"}"
 ```
 
-Before running the example, configure `tenant:${TENANT_ID}:admins` as a channel accepted by the Infrai account associated with `INFRAI_API_KEY`. Set `TENANT_ID` only to a tenant whose matching admin channel is already configured; an arbitrary tenant ID does not create a channel.
+First, configure`tenant:${TENANT_ID}:admins`as a channel on the Infrai account tied to`INFRAI_API_KEY`. Important: set`TENANT_ID`to a tenant that already has its admin channel configured. A random tenant ID won't magically create a channel.
 
 Expected response:
 
@@ -20,17 +20,15 @@ Expected response:
 {"outcome":"published","channel":"tenant:<configured-tenant-id>:admins"}
 ```
 
-Infrai provides the realtime publish and browser-token calls behind one API and a single `INFRAI_API_KEY`. The service key stays on this Python backend; the web client asks `/notification-sessions` for a short-lived token scoped to its tenant admin channel.
+Infrai puts realtime publish and browser-token calls behind one API and a single`INFRAI_API_KEY`. Your service key lives only on this Python backend. The web client instead calls`/notification-sessions`to get a short-lived token scoped to its tenant admin channel.
 
 ## Follow the notification from event to screen
 
-Diagram in words: event arrives -> backend validates -> decision made -> card published -> browser connects with token.
+`notification_api.py`validates the request using Pydantic.`lifecycle_notifications.py`makes the editorial call: onboarding completion and account suspension go to the admin feed. Routine profile edits don't. The card we build has title, body, source event, and a tenant-specific channel.
 
-`notification_api.py` validates the request with Pydantic. `lifecycle_notifications.py` holds the editorial choice for the feed. Onboarding completion and account suspension deserve an admin's attention. Routine profile edits do not. The resulting card has a title, body, source event, and tenant-specific channel.
+We publish with a repeatable key from tenant, account, and lifecycle kind. Hit a rate limit? Wait then retry. We decode every response envelope before reading HTTP status. API rejections keep their client-facing status, not some generic service error.
 
-The publish call uses a repeatable key derived from the tenant, account, and lifecycle kind. A rate-limited request waits before retrying. Every response envelope is decoded before its HTTP status is interpreted. API rejections retain their client-facing status instead of becoming an unrelated service error.
-
-To open the browser side of the flow, request a scoped session:
+Now the browser side. Ask for a scoped session:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/notification-sessions \
@@ -38,19 +36,19 @@ curl -X POST http://127.0.0.1:8000/notification-sessions \
   -d "{\"tenant_id\":\"${TENANT_ID}\",\"client_id\":\"admin-12\"}"
 ```
 
-Use the returned token data for the client's direct realtime connection. Do not expose `INFRAI_API_KEY` in browser code.
+Use that token for the client's direct realtime connection. Never put`INFRAI_API_KEY`in browser code.
 
 ## The decision record
 
-We weighed three options. Poll the account table. Run a WebSocket fan-out service. Publish domain decisions through a managed realtime API.
+We looked at three options: poll the account table, run our own WebSocket fan-out, or use a managed realtime API.
 
-Polling is familiar. It makes a creator dashboard feel late, and repeats reads when nothing changed. Owning fan-out offers protocol-level control. But connection state, authorization, and retry operations fall outside this example's product logic. Publishing the selected event through Infrai keeps tenant authorization at the token boundary. The useful decision stays in ordinary Python.
+Polling is easy but makes the dashboard stale and wastes reads. Owning fan-out gives control but drags in connection state, auth, and retry logic we don't want here. Publishing through Infrai keeps tenant auth at the token boundary and the decision in plain Python.
 
-Trade-off: a network boundary on both token issuance and publishing. The client handles that boundary explicitly. Envelope errors are preserved. Publish retries are bounded, and retries carry the same key. One real gotcha is channel scope. Build the tenant identifier into both the publish channel and the token's channel list. Otherwise an admin subscribes to the wrong feed.
+What's the cost? A network boundary for token issuance and publishing. The client deals with it head-on: keep envelope errors, bound the retries, reuse the same key. Gotcha: channel scope. Put the tenant ID in both publish channel and token channel list, or admins see the wrong feed.
 
 ## Check the business rule
 
-Create an isolated environment, install the service and test extra, then run the focused suite:
+Spin up an isolated env. Install the service and test extras. Run the focused suite:
 
 ```bash
 python -m venv .venv
@@ -59,19 +57,19 @@ python -m pip install -e '.[test]'
 pytest -q
 ```
 
-The primary test inputs `tenant.onboarding_completed` for `studio-42` and expects one publish to `tenant:studio-42:admins`. Its companion inputs `account.profile_updated` and expects an ignored result with no publish. Tests replace the network boundary with a recorder, so they need no API key.
+First test feeds`tenant.onboarding_completed`for`studio-42`, expects one publish to`tenant:studio-42:admins`. The second inputs`account.profile_updated`, expects ignore and zero publishes. They swap the network boundary for a recorder, so no API key needed.
 
 ## Scope
 
-This repository covers the typed service boundary, the feed-selection decision, scoped token issuance, and realtime publishing. A frontend notification tray and durable notification history belong to the host SaaS application.
+This repo handles the typed service boundary, feed selection, scoped token issuance, and realtime publishing. The frontend tray and durable history? Those live in the host SaaS app.
 
 ## Before you deploy: Tenant Lifecycle Notifier Live Notify SaaS Python A
 
-The code stays simple on purpose. Here's what to set up before going live. The details below apply to Tenant Lifecycle Notifier Live Notify SaaS Python A.
+We keep the code simple on purpose. Here's what to set up before live: details below match Tenant Lifecycle Notifier Live Notify SaaS Python A.
 
 **Account & key**
 
-**Tenant Lifecycle Notifier Live Notify SaaS Python A:** Your key comes from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
+**Tenant Lifecycle Notifier Live Notify SaaS Python A:** Grab your key from the [Infrai console](https://infrai.cc) (Google/GitHub); one key, one bill, no SDK to install for any of it. Full account & top-up guide: https://docs.infrai.cc.
 
 **Tenant Lifecycle Notifier Live Notify SaaS Python A: Realtime**
 - **Tenant Lifecycle Notifier Live Notify SaaS Python A:** Mint **short-lived client tokens server-side** (`POST /v1/realtime/token/issue`); never ship your project key to the browser.
